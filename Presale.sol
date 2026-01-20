@@ -1,4 +1,3 @@
-
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
@@ -7,15 +6,18 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 
 contract BigrockPresale is Ownable, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     IERC20 public immutable token; // BIGROCK
     IERC20 public immutable usdt;
+    uint public immutable tokenDecimals;
+    uint public immutable usdtDecimals;
 
     uint256 public constant TOTAL_LOTS = 2000;
-    uint256 public constant MONTH = 30 days;
+    uint256 public constant MONTH = 365 days/12;
     uint256 public constant PRESALE_CAP = 2500000000;
     uint256 public constant TOKENS_PER_LOT = 1250000;
 
@@ -54,6 +56,9 @@ contract BigrockPresale is Ownable, Pausable, ReentrancyGuard {
         usdt = IERC20(_usdt);
         tokenPrice = _initialTokenPrice;
         updateLotPrice(_initialTokenPrice);
+        tokenDecimals = IERC20Metadata(_token).decimals();
+        usdtDecimals = IERC20Metadata(_usdt).decimals();
+       
     }
 
     function updateLotPrice(uint256 _newPrice) internal  {
@@ -66,7 +71,6 @@ contract BigrockPresale is Ownable, Pausable, ReentrancyGuard {
     function buyLots(uint256 lots) external nonReentrant whenNotPaused {
         require(lots > 0, "Invalid lots");
         require(totalLotsSold + lots <= TOTAL_LOTS, "Presale sold out");
-        require((totalLotsSold + lots) * TOKENS_PER_LOT <= PRESALE_CAP,"Presale cap exceeded");
 
 
         uint256 cost = LOT_PRICE_USDT * lots;
@@ -76,17 +80,18 @@ contract BigrockPresale is Ownable, Pausable, ReentrancyGuard {
 
         UserInfo storage user = users[msg.sender];
         user.lotsBought += lots;
-        user.totalTokens += tokensToAllocate*1e18;
+        user.totalTokens += tokensToAllocate* (10 ** tokenDecimals);
 
         totalLotsSold += lots;
 
-        emit TokensPurchased(msg.sender, lots, tokensToAllocate*1e18);
+        emit TokensPurchased(msg.sender, lots, tokensToAllocate*(10 ** tokenDecimals));
     }
 
     /* ===================== CLAIM ===================== */
 
     function claimTokens() external nonReentrant {
         require(launchTimestampSet, "Launch not set");
+        require(claimEnableTime > 0, "Claim Time Not Set");
         require(block.timestamp >= claimEnableTime, "Claims not enabled");
 
         uint256 claimable = getClaimable(msg.sender);
@@ -131,7 +136,8 @@ contract BigrockPresale is Ownable, Pausable, ReentrancyGuard {
 
     function setLaunchTimestamp(uint256 _launchTimestamp) external onlyOwner {
         require(!launchTimestampSet, "Launch already set");
-        require(totalLotsSold == TOTAL_LOTS, "Presale not completed");
+        require(totalLotsSold > 0, "No Lots Sold");
+        require(_launchTimestamp > block.timestamp,"Launch Must be in Future");
         launchTimestamp = _launchTimestamp;
         launchTimestampSet = true;
 
@@ -140,6 +146,7 @@ contract BigrockPresale is Ownable, Pausable, ReentrancyGuard {
 
     function setClaimEnableTime(uint256 _time) external onlyOwner {
         require(launchTimestampSet, "Launch not set");
+        require(_time > 0,"Claim Time cannot be zero");
         require(_time <= launchTimestamp, "Invalid claim time");
 
         claimEnableTime = _time;
@@ -173,6 +180,7 @@ function updateLaunchTimestamp(uint256 newLaunchTimestamp)
     require(launchTimestampSet, "Launch not set");
     require(block.timestamp < launchTimestamp, "Launch already started");
     require(newLaunchTimestamp > block.timestamp, "Invalid launch time");
+    require(newLaunchTimestamp >= claimEnableTime, "Launch must be at or after claim time");
 
     launchTimestamp = newLaunchTimestamp;
 
